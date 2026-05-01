@@ -1,0 +1,85 @@
+{
+  "class": "AS3",
+  "action": "deploy",
+  "persist": true,
+  "declaration": {
+    "class": "ADC",
+    "schemaVersion": "3.52.0",
+    "id": "automating-tls-cert-renewals",
+    "label": "Two TLS VIPs",
+    "remark": "Two HTTPS VIPs with iRules and ACME certs",
+    "TLSRenewal": {
+      "class": "Tenant",
+      "vip1_app": {
+        "class": "Application",
+        "template": "generic",
+        "vip1_rule": {
+          "class": "iRule",
+          "iRule": "when HTTP_REQUEST {\n  HTTP::respond 200 content {<html><head><title>${vip1_fqdn}</title></head><body><h1>${vip1_fqdn}</h1><p>Served securely by BIG-IP via AS3 and iRule.</p></body></html>} noserver Cache-Control no-store Connection Close Content-Type {text/html; charset=UTF-8}\n}"
+        },
+        "vip1_pool": {
+          "class": "Pool",
+          "members": [
+            {
+              "servicePort": 8080,
+              "serverAddresses": [
+                "198.19.255.254"
+              ]
+            }
+          ],
+          "monitors": []
+        },
+        "vip1_service": {
+          "class": "Service_HTTPS",
+          "virtualAddresses": [
+            "${vip1_private_ip}"
+          ],
+          "virtualPort": 443,
+          "redirect80": false,
+          "serverTLS": {
+            "bigip": "/Common/vip1_clientssl"
+          },
+          "pool": "vip1_pool",
+          "iRules": [
+            "vip1_rule"
+          ]
+        }
+      },
+      "vip2_app": {
+        "class": "Application",
+        "template": "generic",
+        "vip2_rule": {
+          "class": "iRule",
+          "iRule": "when HTTP_REQUEST {\n  HTTP::respond 200 content {<html><head><title>${vip2_fqdn}</title></head><body><h1>${vip2_fqdn}</h1><p>Served securely by BIG-IP via AS3 and iRule.</p></body></html>} noserver Cache-Control no-store Connection Close Content-Type {text/html; charset=UTF-8}\n}"
+        },
+        "vip2_pool": {
+          "class": "Pool",
+          "members": [
+            {
+              "servicePort": 8080,
+              "serverAddresses": [
+                "198.19.255.254"
+              ]
+            }
+          ],
+          "monitors": []
+        },
+        "vip2_service": {
+          "class": "Service_HTTPS",
+          "virtualAddresses": [
+            "${vip2_private_ip}"
+          ],
+          "virtualPort": 443,
+          "redirect80": false,
+          "serverTLS": {
+            "bigip": "/Common/vip2_clientssl"
+          },
+          "pool": "vip2_pool",
+          "iRules": [
+            "vip2_rule"
+          ]
+        }
+      }
+    }
+  }
+}

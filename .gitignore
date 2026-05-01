@@ -1,0 +1,21 @@
+.DS_Store
+
+# Terraform working files
+**/.terraform/
+**/.terraform.lock.hcl
+**/*.tfstate
+**/*.tfstate.*
+**/crash.log
+**/rendered-*.json
+
+# Local secrets and runtime files
+terraform/azure-bigip/terraform.tfvars
+terraform/azure-bigip/.ssh/
+
+# Python cache
+**/__pycache__/
+**/*.pyc
+
+# ACME runtime artifacts
+acme/kojot-acme/accounts/
+acme/kojot-acme/certs/

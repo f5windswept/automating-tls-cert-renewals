@@ -1,0 +1,18 @@
+resource_group_name = "rg-bigip-eval"
+location            = "eastus"
+prefix              = "bigipeval"
+
+bigip_vm_name       = "bigip-eval-01"
+bigip_hostname      = "bigip-eval-01.local"
+bigip_license_key   = "AAAA-BBBB-CCCC-DDDD-EEEE"
+zone_name           = "example.com"
+acme_contact_email  = "admin@example.com"
+
+# Confirm the correct BYOL image in your subscription with:
+# az vm image list --publisher f5-networks --offer f5-big-ip-byol --all -o table
+bigip_offer         = "f5-big-ip-byol"
+bigip_sku           = "f5-big-ltm-2slot-byol"
+bigip_version       = "latest"
+f5_ssh_publickey    = "~/.ssh/bigip_azure_eval_rsa.pub"
+
+allowed_cidr        = "0.0.0.0/0"
