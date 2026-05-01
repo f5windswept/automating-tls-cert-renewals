@@ -113,14 +113,45 @@ ssh_base=(ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i 
 scp_base=(scp -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$SSH_KEY")
 target="${BIGIP_USER}@${BIGIP_HOST}"
 
-cleanup() {
-  "${ssh_base[@]}" "$target" "tmsh modify ltm data-group internal dg_acme_config records delete { \"${TEST_DOMAIN}\" } >/dev/null 2>&1 || true" || true
-  "${ssh_base[@]}" "$target" "tmsh delete sys file ssl-cert ${TEST_DOMAIN} >/dev/null 2>&1 || true" || true
-  "${ssh_base[@]}" "$target" "tmsh delete sys file ssl-key ${TEST_DOMAIN} >/dev/null 2>&1 || true" || true
-  "${ssh_base[@]}" "$target" "rm -rf '${REMOTE_CERT_DIR}' '${REMOTE_CONFIG}' /var/tmp/${TEST_DOMAIN}.config >/dev/null 2>&1 || true" || true
+remote_cleanup_command() {
+  cat <<EOF
+tmsh modify ltm data-group internal dg_acme_config records delete { "${TEST_DOMAIN}" } >/dev/null 2>&1 || true
+tmsh delete sys file ssl-cert ${TEST_DOMAIN} >/dev/null 2>&1 || true
+tmsh delete sys file ssl-key ${TEST_DOMAIN} >/dev/null 2>&1 || true
+rm -rf '${REMOTE_CERT_DIR}' '${REMOTE_CONFIG}' /var/tmp/${TEST_DOMAIN}.config >/dev/null 2>&1 || true
+EOF
 }
 
-trap cleanup EXIT
+cleanup_stale_prefix_records() {
+  "${ssh_base[@]}" "$target" "PREFIX='${DOMAIN_PREFIX}' ZONE='${ZONE_NAME}' python3 - <<'PY'
+import re
+import os
+import subprocess
+
+prefix = os.environ['PREFIX']
+zone = os.environ['ZONE']
+pattern = re.compile(rf'^{re.escape(prefix)}-[0-9]+\\.{re.escape(zone)}$')
+
+output = subprocess.check_output(['tmsh', 'list', 'ltm', 'data-group', 'internal', 'dg_acme_config'], text=True)
+records = sorted(set(pattern.findall(output)))
+for record in records:
+    subprocess.call(['tmsh', 'modify', 'ltm', 'data-group', 'internal', 'dg_acme_config', 'records', 'delete', '{', record, '}'])
+    subprocess.call(['tmsh', 'delete', 'sys', 'file', 'ssl-cert', record])
+    subprocess.call(['tmsh', 'delete', 'sys', 'file', 'ssl-key', record])
+print('\n'.join(records))
+PY" | while IFS= read -r stale_record; do
+    [ -z "$stale_record" ] && continue
+    echo "Removed stale renewal-proof record: $stale_record"
+  done
+
+  "${ssh_base[@]}" "$target" "rm -rf /shared/acme/certs/${DOMAIN_PREFIX}-*.${ZONE_NAME} /shared/acme/config_${DOMAIN_PREFIX}_* /var/tmp/${DOMAIN_PREFIX}-*.config >/dev/null 2>&1 || true"
+}
+
+cleanup() {
+  "${ssh_base[@]}" "$target" "$(remote_cleanup_command)" || true
+}
+
+trap cleanup EXIT INT TERM
 
 tmp_config=$(mktemp)
 cat > "$tmp_config" <<EOF
@@ -146,6 +177,7 @@ CF_ZONE_NAME=${ZONE_NAME}
 EOF
 
 echo "Uploading temporary renewal-proof config for ${TEST_DOMAIN}"
+cleanup_stale_prefix_records
 "${ssh_base[@]}" "$target" "mkdir -p '${REMOTE_CA_CONFIG_DIR}'"
 "${scp_base[@]}" "$ROOT_DIR/scripts/dns_cloudflare.sh" "$target:/var/tmp/dns_cloudflare.sh"
 "${ssh_base[@]}" "$target" "install -m 700 /var/tmp/dns_cloudflare.sh '${REMOTE_DNS_SCRIPT}'"
