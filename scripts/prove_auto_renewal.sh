@@ -8,7 +8,7 @@ SSH_KEY_DEFAULT="$TF_DIR/.ssh/bigip_azure_eval_rsa"
 
 STAGING_CA_URL="https://acme-staging-v02.api.letsencrypt.org/directory"
 ZONE_NAME="${TF_VAR_zone_name:-}"
-CONTACT_EMAIL="admin@example.com"
+CONTACT_EMAIL="${TF_VAR_acme_contact_email:-}"
 THRESHOLD_DAYS=365
 DOMAIN_PREFIX="renewal-proof"
 
@@ -72,6 +72,21 @@ if [[ -z "$ZONE_NAME" ]]; then
   ZONE_NAME=${vip1_host#*.}
 fi
 
+if [[ -z "$CONTACT_EMAIL" && -f "$TF_DIR/terraform.tfvars" ]]; then
+  CONTACT_EMAIL=$(python3 - "$TF_DIR/terraform.tfvars" <<'PY'
+import re, sys
+text = open(sys.argv[1], 'r', encoding='utf-8').read()
+m = re.search(r'^\s*acme_contact_email\s*=\s*"([^"]+)"', text, re.M)
+print(m.group(1) if m else '')
+PY
+)
+fi
+
+if [[ -z "$CONTACT_EMAIL" ]]; then
+  echo "ACME contact email is not set. Pass --contact-email, set TF_VAR_acme_contact_email, or add acme_contact_email to terraform/azure-bigip/terraform.tfvars." >&2
+  exit 1
+fi
+
 if [[ -z "$ZONE_NAME" ]]; then
   echo "Zone name is not set. Pass --zone-name or set TF_VAR_zone_name." >&2
   exit 1
@@ -91,6 +106,8 @@ TEST_DOMAIN="${DOMAIN_PREFIX}-${RUN_ID}.${ZONE_NAME}"
 REMOTE_CONFIG="/shared/acme/config_${DOMAIN_PREFIX}_${RUN_ID}"
 REMOTE_CERT_DIR="/shared/acme/certs/${TEST_DOMAIN}"
 REMOTE_DNS_SCRIPT="/shared/acme/dnsapi/dns_cloudflare.sh"
+REMOTE_CA_CONFIG_DIR="/shared/acme/accounts"
+REMOTE_STAGING_CA_DIR=$(printf '%s\n' "$STAGING_CA_URL" | base64 | tr -d '=')
 
 ssh_base=(ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$SSH_KEY")
 scp_base=(scp -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i "$SSH_KEY")
@@ -110,6 +127,7 @@ cat > "$tmp_config" <<EOF
 CONTACT_EMAIL=${CONTACT_EMAIL}
 KEY_ALGO=rsa
 KEYSIZE=2048
+ALWAYS_GENERATE_KEY=true
 THRESHOLD=${THRESHOLD_DAYS}
 VALIDATION_TIMEOUT=120
 ORDER_TIMEOUT=120
@@ -128,12 +146,14 @@ CF_ZONE_NAME=${ZONE_NAME}
 EOF
 
 echo "Uploading temporary renewal-proof config for ${TEST_DOMAIN}"
+"${ssh_base[@]}" "$target" "mkdir -p '${REMOTE_CA_CONFIG_DIR}'"
 "${scp_base[@]}" "$ROOT_DIR/scripts/dns_cloudflare.sh" "$target:/var/tmp/dns_cloudflare.sh"
 "${ssh_base[@]}" "$target" "install -m 700 /var/tmp/dns_cloudflare.sh '${REMOTE_DNS_SCRIPT}'"
 "${scp_base[@]}" "$tmp_config" "$target:/var/tmp/${TEST_DOMAIN}.config"
 rm -f "$tmp_config"
 
 "${ssh_base[@]}" "$target" "install -m 600 /var/tmp/${TEST_DOMAIN}.config '${REMOTE_CONFIG}'"
+"${ssh_base[@]}" "$target" "rm -rf '${REMOTE_CA_CONFIG_DIR}/${REMOTE_STAGING_CA_DIR}' && /shared/acme/bin/dehydrated --register --accept-terms --config '${REMOTE_CONFIG}' --ca '${STAGING_CA_URL}'"
 "${ssh_base[@]}" "$target" "tmsh modify ltm data-group internal dg_acme_config records add { \"${TEST_DOMAIN}\" { data \"--ca ${STAGING_CA_URL} --config ${REMOTE_CONFIG}\" } }"
 
 run_handler() {
