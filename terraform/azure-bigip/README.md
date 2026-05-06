@@ -30,6 +30,12 @@ This is intentionally optimized for speed and repeatability, not for a productio
 
 ## Fastest Workflow
 
+1. Get the list of BIG-IP versions by running:
+
+```bash
+az vm image list --publisher f5-networks --all --location eastus --sku f5-big-ltm-2slot-byol --output table
+```
+
 1. Copy `terraform.tfvars.example` to `terraform.tfvars`
 2. Set `bigip_license_key`
 3. Optionally adjust `location`, `prefix`, and `bigip_vm_name`

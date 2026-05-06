@@ -3,6 +3,7 @@
 # Terraform working files
 **/.terraform/
 **/.terraform.lock.hcl
+**/.terraform.tfvars.swp
 **/*.tfstate
 **/*.tfstate.*
 **/crash.log
